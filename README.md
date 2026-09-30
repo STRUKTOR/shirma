@@ -23,3 +23,7 @@
 ## Тесты
 
 `uv run pytest`
+
+## Лицензия
+
+[MIT](LICENSE)

@@ -2,6 +2,8 @@
 name = "shirma"
 version = "0.1.0"
 description = "Обезличивание документов перед работой с Claude Code и обратная замена"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
 dependencies = [
     "lxml>=5",
