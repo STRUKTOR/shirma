@@ -1,6 +1,7 @@
-"""Команды: init, obezlichit, proverit, vernut.
+"""Команды: init, obfuscate, check, restore.
 
-В консоль печатаются только количества — никаких значений. Подробности — в отчёте в Сейфе.
+В консоль печатаются только количества — никаких значений. Подробности — в отчёте
+в private/system/reports.
 """
 import argparse
 import hashlib
@@ -16,7 +17,7 @@ from . import detect, formats
 from .registry import Registry, TYPE_NAMES
 from .replace import FWD, REV, Stats, fake_stems, learn, process, scan_leftovers
 from .report import Report
-from .workspace import Workspace, walk_files
+from .workspace import DICT_COMPANIES, DICT_PEOPLE, DICT_STOPLIST, Workspace, walk_files
 
 
 def _out(msg=''):
@@ -28,10 +29,10 @@ def _sha(data):
 
 
 def _registry(ws):
-    reg = Registry(ws.db, stoplist=ws.dict_lines('стоп-лист.txt'))
-    for line in ws.dict_lines('компании.txt'):
+    reg = Registry(ws.db, stoplist=ws.dict_lines(DICT_STOPLIST))
+    for line in ws.dict_lines(DICT_COMPANIES):
         reg.add_org(detect.strip_org(line))
-    for line in ws.dict_lines('люди.txt'):
+    for line in ws.dict_lines(DICT_PEOPLE):
         reg.add_person(detect.parse_person(line, from_column=True))
     return reg
 
@@ -83,13 +84,13 @@ def _open_report(path, do_open):
 
 # --- обезличить ----------------------------------------------------------------
 
-def cmd_obezlichit(ws, args):
+def cmd_obfuscate(ws, args):
     for d in ws.dirs():
         os.makedirs(d, exist_ok=True)
     reg = _registry(ws)
     use_ner = not args.no_ner
     rep = Report('Обезличивание', ws)
-    files = walk_files(ws.orig)
+    files = walk_files(ws.private_in)
     bad, todo, old = [], [], []
     for rel in files:
         if formats.ext_of(rel) not in formats.IN_FORMATS:
@@ -97,12 +98,12 @@ def cmd_obezlichit(ws, args):
             continue
         rec = reg.file_record(FWD, rel)
         try:
-            data = _read(os.path.join(ws.orig, rel))
+            data = _read(os.path.join(ws.private_in, rel))
         except Exception as e:
             bad.append((rel, e))
             continue
         sha = _sha(data)
-        if rec and rec[0] == sha and rec[1] and os.path.exists(os.path.join(ws.copies, rec[1])):
+        if rec and rec[0] == sha and rec[1] and os.path.exists(os.path.join(ws.claude_in, rec[1])):
             old.append((rel, data, rec))
         else:
             todo.append((rel, data, rec))
@@ -141,10 +142,10 @@ def cmd_obezlichit(ws, args):
         try:
             out = formats.convert(data, rel, reg, FWD, st, warns)
             out_rel = _map_path(rel, reg, FWD, st)
-            dst = os.path.join(ws.copies, out_rel)
+            dst = os.path.join(ws.claude_in, out_rel)
             if rec and rec[1] and rec[1] != out_rel:
                 try:
-                    os.remove(os.path.join(ws.copies, rec[1]))
+                    os.remove(os.path.join(ws.claude_in, rec[1]))
                 except OSError:
                     pass
             _write_atomic(dst, out)
@@ -177,24 +178,24 @@ def cmd_obezlichit(ws, args):
     if bad:
         reasons = Counter(_error_text(e) for _, e in bad)
         _out(f'ОШИБКА: {len(bad)} файл(ов) НЕ обезличено: ' +
-             '; '.join(f'{r} — {n}' for r, n in reasons.items()) + '. Эти файлы в «Копии» не попали.')
-    _out('Отчёт — в Сейф/Отчёты. Перед работой с новыми файлами запустите проверку.')
+             '; '.join(f'{r} — {n}' for r, n in reasons.items()) + '. Эти файлы в claude/input не попали.')
+    _out('Отчёт — в private/system/reports. Перед работой с новыми файлами запустите проверку.')
     _open_report(path, args.open)
     return 2 if bad else 0
 
 
 # --- проверить ------------------------------------------------------------------
 
-def cmd_proverit(ws, args):
+def cmd_check(ws, args):
     reg = _registry(ws)
     rep = Report('Проверка копий', ws)
     found = Counter()
     files = 0
     bad = []
-    for rel in walk_files(ws.copies):
+    for rel in walk_files(ws.claude_in):
         st = Stats()
         try:
-            texts = [rel] + formats.texts(_read(os.path.join(ws.copies, rel)), rel)
+            texts = [rel] + formats.texts(_read(os.path.join(ws.claude_in, rel)), rel)
         except Exception as e:
             bad.append(rel)
             rep.add_file(rel, None, None, error=_error_text(e))
@@ -211,8 +212,8 @@ def cmd_proverit(ws, args):
     path = rep.save()
     if found:
         _out(f'Проверено файлов: {files}. НАЙДЕНО: ' + ', '.join(f'{k} — {v}' for k, v in found.items()) +
-             '. Эти копии Claude пока не давать: посмотрите отчёт в Сейф/Отчёты, '
-             'добавьте пропущенное в Словари (или ложное — в стоп-лист) и обезличьте заново.')
+             '. Эти копии Claude пока не давать: посмотрите отчёт в private/system/reports, '
+             'добавьте пропущенное в словари (или ложное — в stoplist.txt) и обезличьте заново.')
         _open_report(path, args.open)
         return 1
     _out(f'Проверено файлов: {files}. Подозрительного не найдено. Перед работой всё равно пролистайте копию глазами.')
@@ -224,8 +225,8 @@ def cmd_proverit(ws, args):
 
 # --- вернуть ----------------------------------------------------------------------
 
-def cmd_vernut(ws, args):
-    os.makedirs(ws.result, exist_ok=True)
+def cmd_restore(ws, args):
+    os.makedirs(ws.private_out, exist_ok=True)
     reg = _registry(ws)
     rep = Report('Восстановление', ws)
     stems = fake_stems(reg)
@@ -235,7 +236,7 @@ def cmd_vernut(ws, args):
         src = os.path.join(ws.claude_out, rel)
         st, warns = Stats(), []
         out_rel = _map_path(rel, reg, REV, st)
-        dst = os.path.join(ws.result, out_rel)
+        dst = os.path.join(ws.private_out, out_rel)
         ext = formats.ext_of(rel)
         try:
             data = _read(src)
@@ -268,10 +269,10 @@ def cmd_vernut(ws, args):
     if copied:
         _out(f'Скопировано без обработки (PDF, картинки и т.п.): {copied} — проверьте их вручную.')
     if left:
-        _out(f'Возможно, не восстановлено мест: {sum(left.values())} — см. отчёт в Сейф/Отчёты.')
+        _out(f'Возможно, не восстановлено мест: {sum(left.values())} — см. отчёт в private/system/reports.')
     if bad:
         _out(f'ОШИБКА: {len(bad)} файл(ов) не обработано — см. отчёт.')
-    _out('Готовые файлы — в Сейф/Результат, открывайте их сами.')
+    _out('Готовые файлы — в private/output, открывайте их сами.')
     _open_report(path, args.open)
     return 2 if bad else 0
 
@@ -282,7 +283,7 @@ def cmd_init(ws, args):
     from .setup import init_workspace
     init_workspace(ws)
     _out(f'Рабочая папка готова: {ws.root}')
-    _out('Кладите файлы в Сейф/Оригиналы и запускайте «Обезличить». Claude Code открывайте в папке Claude.')
+    _out('Кладите файлы в private/input и запускайте «1-Обезличить». Claude Code открывайте в папке claude.')
     return 0
 
 
@@ -292,9 +293,9 @@ def main(argv=None):
     except Exception:
         pass
     p = argparse.ArgumentParser(prog='shirma', description='Обезличивание документов для работы с Claude')
-    p.add_argument('command', choices=['init', 'obezlichit', 'proverit', 'vernut'])
+    p.add_argument('command', choices=['init', 'obfuscate', 'check', 'restore'])
     p.add_argument('path', nargs='?', help='рабочая папка (для init)')
-    p.add_argument('--root', help='рабочая папка (где лежат Сейф и Claude)')
+    p.add_argument('--root', help='рабочая папка (где лежат private и claude)')
     p.add_argument('--open', action='store_true', help='открыть отчёт в браузере')
     p.add_argument('--no-ner', action='store_true', help='не использовать NER (быстрее, но хуже находит имена)')
     args = p.parse_args(argv)
@@ -302,11 +303,11 @@ def main(argv=None):
         ws = Workspace(args.path or args.root or os.getcwd())
     else:
         ws = Workspace(args.root) if args.root else Workspace.find()
-        if ws is None or not os.path.isdir(ws.safe):
-            _out('ОШИБКА: не найдена рабочая папка (рядом должны лежать папки «Сейф» и «Claude»). '
+        if ws is None or not ws.is_workspace():
+            _out('ОШИБКА: не найдена рабочая папка (рядом должны лежать папки private и claude). '
                  'Создайте её командой: shirma init <папка>')
             return 2
-    cmd = {'init': cmd_init, 'obezlichit': cmd_obezlichit, 'proverit': cmd_proverit, 'vernut': cmd_vernut}
+    cmd = {'init': cmd_init, 'obfuscate': cmd_obfuscate, 'check': cmd_check, 'restore': cmd_restore}
     return cmd[args.command](ws, args)
 
 

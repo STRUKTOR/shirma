@@ -25,8 +25,8 @@ def ws(tmp_path_factory):
     root = tmp_path_factory.mktemp('ws')
     assert main(['init', str(root)]) == 0
     w = Workspace(str(root))
-    make_all(w.orig)
-    assert main(['obezlichit', '--root', str(root)]) == 0
+    make_all(w.private_in)
+    assert main(['obfuscate', '--root', str(root)]) == 0
     return w
 
 
@@ -39,7 +39,7 @@ def _all_text(w, folder):
 
 
 def test_copies_have_no_secrets(ws):
-    blob = _all_text(ws, ws.copies)
+    blob = _all_text(ws, ws.claude_in)
     for s in SECRETS:
         # само значение или его падежная форма (но не часть другого слова: «Сокол» ≠ «Сокольникова»)
         m = re.search(rf'(?<![^\W\d_]){re.escape(s)}[^\W\d_]{{0,3}}(?![^\W\d_])', blob)
@@ -47,14 +47,14 @@ def test_copies_have_no_secrets(ws):
 
 
 def test_check_passes(ws):
-    assert main(['proverit', '--root', ws.root]) == 0
+    assert main(['check', '--root', ws.root]) == 0
 
 
 def test_formatting_and_numbers_kept(ws):
-    d = docx.Document(os.path.join(ws.copies, [f for f in walk_files(ws.copies) if f.endswith('.docx')][0]))
+    d = docx.Document(os.path.join(ws.claude_in, [f for f in walk_files(ws.claude_in) if f.endswith('.docx')][0]))
     assert d.paragraphs[0].runs[0].bold
     assert 'Сумма договора: 12 500 000 тенге, дата 01.02.2025.' in [p.text for p in d.paragraphs]
-    wb = openpyxl.load_workbook(os.path.join(ws.copies, 'Реестр.xlsx'))
+    wb = openpyxl.load_workbook(os.path.join(ws.claude_in, 'Реестр.xlsx'))
     sh = wb['Сотрудники']
     assert sh['E4'].value == 150000 and sh['E5'].value == 80000000000
     assert sh['G4'].value == '=A4&" — "&C4'
@@ -107,19 +107,19 @@ def test_restore_claude_output(ws):
     with open(os.path.join(ws.claude_out, 'отчёт.pdf'), 'wb') as f:
         f.write(b'%PDF-1.4 fake')
 
-    assert main(['vernut', '--root', ws.root]) == 0
-    res = os.listdir(ws.result)
+    assert main(['restore', '--root', ws.root]) == 0
+    res = os.listdir(ws.private_out)
     assert 'Итоги Иванов.docx' in res
-    d = docx.Document(os.path.join(ws.result, 'Итоги Иванов.docx'))
+    d = docx.Document(os.path.join(ws.private_out, 'Итоги Иванов.docx'))
     t = d.paragraphs[0].text
     assert 'Ивановым Иваном' in t
     assert 'ТОО «Ромашка»' in t
     assert 'Кузнецовой Марии Петровне' in t
     assert '8-701-123-45-67' in t
     assert 'ivanov@romashka.kz' in t
-    with open(os.path.join(ws.result, 'итоги.md'), encoding='utf-8') as f:
+    with open(os.path.join(ws.private_out, 'итоги.md'), encoding='utf-8') as f:
         assert f.read().startswith('# Встреча с Ивановым Иваном')
-    wb = openpyxl.load_workbook(os.path.join(ws.result, 'свод.xlsx'))
+    wb = openpyxl.load_workbook(os.path.join(ws.private_out, 'свод.xlsx'))
     assert wb.active['A2'].value == 'Иванов Иван Иванович'
     assert wb.active['B2'].value == 850315300128
     assert 'отчёт.pdf' in res
@@ -147,8 +147,8 @@ def test_line_breaks_inside_paragraph(ws):
     d.add_paragraph(f'БИН {reg.nums["bin"]["050140004877"]}\n{iv_datv} {iv["name"][0]}. {iv["patr"][0]}.\n'
                     f'{reg.emails["ivanov@romashka.kz"]}\t{ku["sur"]} {ku["name"][0]}.{ku["patr"][0]}.')
     d.save(os.path.join(ws.claude_out, 'письмо.docx'))
-    assert main(['vernut', '--root', ws.root]) == 0
-    t = docx.Document(os.path.join(ws.result, 'письмо.docx')).paragraphs[0].text
+    assert main(['restore', '--root', ws.root]) == 0
+    t = docx.Document(os.path.join(ws.private_out, 'письмо.docx')).paragraphs[0].text
     assert 'Иванову И. И.' in t
     assert 'ivanov@romashka.kz' in t
     assert 'Кузнецова М.П.' in t
@@ -156,19 +156,19 @@ def test_line_breaks_inside_paragraph(ws):
 
 
 def test_second_run_is_idempotent(ws):
-    before = {f: os.path.getmtime(os.path.join(ws.copies, f)) for f in walk_files(ws.copies)}
-    assert main(['obezlichit', '--root', ws.root]) == 0
-    after = {f: os.path.getmtime(os.path.join(ws.copies, f)) for f in walk_files(ws.copies)}
+    before = {f: os.path.getmtime(os.path.join(ws.claude_in, f)) for f in walk_files(ws.claude_in)}
+    assert main(['obfuscate', '--root', ws.root]) == 0
+    after = {f: os.path.getmtime(os.path.join(ws.claude_in, f)) for f in walk_files(ws.claude_in)}
     assert before == after
 
 
 def test_old_file_redone_when_new_person_learned(ws):
     # старый файл упоминает человека без инициалов — его не узнать; новый файл даёт ФИО полностью
-    with open(os.path.join(ws.orig, 'старое.txt'), 'w', encoding='utf-8') as f:
+    with open(os.path.join(ws.private_in, 'старое.txt'), 'w', encoding='utf-8') as f:
         f.write('Звонил Тлеулесов, просил перезвонить.\n')
-    assert main(['obezlichit', '--root', ws.root]) == 0
-    with open(os.path.join(ws.orig, 'новое.txt'), 'w', encoding='utf-8') as f:
+    assert main(['obfuscate', '--root', ws.root]) == 0
+    with open(os.path.join(ws.private_in, 'новое.txt'), 'w', encoding='utf-8') as f:
         f.write('Директор: Тлеулесов Арман Серикович.\n')
-    assert main(['obezlichit', '--root', ws.root]) == 0
-    blob = _all_text(ws, ws.copies)
+    assert main(['obfuscate', '--root', ws.root]) == 0
+    blob = _all_text(ws, ws.claude_in)
     assert 'Тлеулесов' not in blob

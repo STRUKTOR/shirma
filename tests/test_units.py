@@ -80,22 +80,28 @@ def test_declension():
     assert morph.make_patr('Сергей', 'f') == 'Сергеевна'
 
 
-def test_hook_blocks_safe(tmp_path):
+def test_hook_blocks_private(tmp_path):
     root = str(tmp_path)
-    safe = str(tmp_path / 'Сейф')
-    cwd = str(tmp_path / 'Claude')
+    priv = str(tmp_path / 'private')
+    cwd = str(tmp_path / 'claude')
     py = '/x/python'
-    assert check({'tool_name': 'Read', 'tool_input': {'file_path': '../Сейф/Оригиналы/a.docx'}, 'cwd': cwd},
-                 safe, root, py)
-    assert check({'tool_name': 'Bash', 'tool_input': {'command': 'ls ..'}, 'cwd': cwd}, safe, root, py)
-    assert check({'tool_name': 'Grep', 'tool_input': {'pattern': 'x', 'path': root}, 'cwd': cwd}, safe, root, py)
-    assert check({'tool_name': 'Read', 'tool_input': {'file_path': 'Копии/a.docx'}, 'cwd': cwd},
-                 safe, root, py) is None
-    ok = f'"{py}" -m shirma vernut --root "{root}"'
-    assert check({'tool_name': 'Bash', 'tool_input': {'command': ok}, 'cwd': cwd}, safe, root, py) is None
-    assert check({'tool_name': 'Bash', 'tool_input': {'command': ok + ' && cat ../Сейф/x'}, 'cwd': cwd},
-                 safe, root, py)
 
+    def chk(tool, inp):
+        return check({'tool_name': tool, 'tool_input': inp, 'cwd': cwd}, priv, root, py)
+
+    assert chk('Read', {'file_path': '../private/input/a.docx'})
+    assert chk('Read', {'file_path': priv + '/system/mapping.csv'})
+    assert chk('Bash', {'command': 'ls ..'})
+    assert chk('Bash', {'command': f'cat {root}/private/system/mapping.csv'})
+    assert chk('Grep', {'pattern': 'x', 'path': root})
+    assert chk('Glob', {'pattern': '../**/*.docx'})
+    assert chk('Read', {'file_path': 'input/a.docx'}) is None
+    # слово «private» само по себе не повод блокировать (код, системные пути macOS)
+    assert chk('Bash', {'command': 'grep -rn "private" input/'}) is None
+    assert chk('Write', {'file_path': 'output/x.py', 'content': 'private int x;'}) is None
+    ok = f'"{py}" -m shirma restore --root "{root}"'
+    assert chk('Bash', {'command': ok}) is None
+    assert chk('Bash', {'command': ok + ' && cat ../private/x'})
 
 
 

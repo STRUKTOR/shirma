@@ -1,10 +1,25 @@
-"""Раскладка рабочей папки."""
+"""Раскладка рабочей папки.
+
+<рабочая папка>/
+  1-Обезличить / 2-Проверить / 3-Вернуть   ярлыки
+  private/                 Claude сюда не заглядывает
+    input/                 оригиналы
+    output/                восстановленные результаты
+    system/                таблица соответствий, словари, отчёты
+  claude/                  папка проекта Claude Code
+    input/                 обезличенные копии
+    output/                результаты Claude
+"""
 import os
 import unicodedata
 
-SAFE = 'Сейф'
-CLAUDE = 'Claude'
+PRIVATE = 'private'
+CLAUDE = 'claude'
 SKIP_NAMES = {'.DS_Store', 'Thumbs.db', 'desktop.ini', '.gitkeep'}
+
+DICT_COMPANIES = 'companies.txt'
+DICT_PEOPLE = 'people.txt'
+DICT_STOPLIST = 'stoplist.txt'
 
 
 def nfc(s):
@@ -14,20 +29,24 @@ def nfc(s):
 class Workspace:
     def __init__(self, root):
         self.root = os.path.abspath(root)
-        self.safe = os.path.join(self.root, SAFE)
+        self.private = os.path.join(self.root, PRIVATE)
         self.claude = os.path.join(self.root, CLAUDE)
-        self.orig = os.path.join(self.safe, 'Оригиналы')
-        self.result = os.path.join(self.safe, 'Результат')
-        self.zam = os.path.join(self.safe, 'Замены')
-        self.dicts = os.path.join(self.safe, 'Словари')
-        self.reports = os.path.join(self.safe, 'Отчёты')
-        self.copies = os.path.join(self.claude, 'Копии')
-        self.claude_out = os.path.join(self.claude, 'Результат')
-        self.db = os.path.join(self.zam, 'zameny.sqlite')
-        self.csv = os.path.join(self.zam, 'zameny.csv')
+        self.private_in = os.path.join(self.private, 'input')
+        self.private_out = os.path.join(self.private, 'output')
+        self.system = os.path.join(self.private, 'system')
+        self.dicts = os.path.join(self.system, 'dictionaries')
+        self.reports = os.path.join(self.system, 'reports')
+        self.claude_in = os.path.join(self.claude, 'input')
+        self.claude_out = os.path.join(self.claude, 'output')
+        self.db = os.path.join(self.system, 'mapping.sqlite')
+        self.csv = os.path.join(self.system, 'mapping.csv')
 
     def dirs(self):
-        return [self.orig, self.result, self.zam, self.dicts, self.reports, self.copies, self.claude_out]
+        return [self.private_in, self.private_out, self.system, self.dicts, self.reports,
+                self.claude_in, self.claude_out]
+
+    def is_workspace(self):
+        return os.path.isdir(self.system) and os.path.isdir(self.claude)
 
     def dict_lines(self, name):
         p = os.path.join(self.dicts, name)
@@ -38,11 +57,12 @@ class Workspace:
 
     @staticmethod
     def find(start=None):
-        """Корень рабочей папки: там, где рядом лежат «Сейф» и «Claude»."""
+        """Корень рабочей папки: там, где рядом лежат private/system и claude."""
         cur = os.path.abspath(start or os.getcwd())
         for _ in range(4):
-            if os.path.isdir(os.path.join(cur, SAFE)):
-                return Workspace(cur)
+            ws = Workspace(cur)
+            if ws.is_workspace():
+                return ws
             cur = os.path.dirname(cur)
         return None
 

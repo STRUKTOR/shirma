@@ -1,4 +1,4 @@
-"""HTML-отчёт. Лежит в Сейфе: содержит настоящие данные."""
+"""HTML-отчёт. Лежит в private/system/reports: содержит настоящие данные."""
 import datetime as dt
 import html
 import os

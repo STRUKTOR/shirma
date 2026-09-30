@@ -25,7 +25,7 @@ Thumbs.db
 desktop.ini
 
 # Рабочие данные Ширмы: оригиналы и таблица замен никогда не должны попасть в репозиторий
-Сейф/
-Claude/
+private/
+claude/
 *.sqlite
-zameny.csv
+mapping.csv
