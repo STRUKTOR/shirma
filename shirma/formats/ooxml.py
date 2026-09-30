@@ -32,6 +32,8 @@ PARA_TEXT = {
 }
 PARA_TAGS = tuple(PARA_TEXT)
 ALL_TEXT_TAGS = tuple({t for v in PARA_TEXT.values() for t in v})
+# Перенос строки и табуляция внутри абзаца — граница слова: без неё «…877<br/>Иванов» склеится в одно слово
+BREAK_TAGS = (q(NS_W, 'br'), q(NS_W, 'cr'), q(NS_W, 'tab'), q(NS_A, 'br'))
 S_RPH = q(NS_S, 'rPh')
 
 AUTHOR_ATTRS = {'author': 'Автор', 'initials': 'А', 'displayName': 'Автор'}
@@ -103,8 +105,18 @@ def _nearest_para(el):
 
 
 def _para_nodes(para):
+    """Куски текста абзаца, разбитые на группы по переносам строк и табуляциям."""
     tags = PARA_TEXT[para.tag]
-    return [t for t in para.iter(*tags) if _nearest_para(t) is para and t.getparent().tag != S_RPH]
+    groups = [[]]
+    for t in para.iter(*tags, *BREAK_TAGS):
+        if _nearest_para(t) is not para:
+            continue
+        if t.tag in BREAK_TAGS:
+            if groups[-1]:
+                groups.append([])
+        elif t.getparent().tag != S_RPH:
+            groups[-1].append(t)
+    return [g for g in groups if g]
 
 
 def _redistribute(texts, spans):
@@ -147,8 +159,7 @@ def _set_text(node, text):
 
 def iter_paragraphs(root):
     for para in root.iter(*PARA_TAGS):
-        nodes = _para_nodes(para)
-        if nodes:
+        for nodes in _para_nodes(para):
             yield para, nodes
 
 
@@ -158,7 +169,7 @@ def _shared_strings(pkg):
         return [], []
     root = pkg.tree(name)
     items = root.findall(q(NS_S, 'si'))
-    return [''.join(n.text or '' for n in _para_nodes(si)) for si in items], items
+    return [''.join(n.text or '' for g in _para_nodes(si) for n in g) for si in items], items
 
 
 def _col(ref):
@@ -176,7 +187,7 @@ def _cell_value(c, ss):
             return None
     if t == 'inlineStr':
         is_ = c.find(q(NS_S, 'is'))
-        return ''.join(n.text or '' for n in _para_nodes(is_)) if is_ is not None else None
+        return ''.join(n.text or '' for g in _para_nodes(is_) for n in g) if is_ is not None else None
     return v.text if v is not None else None
 
 

@@ -125,6 +125,36 @@ def test_restore_claude_output(ws):
     assert 'отчёт.pdf' in res
 
 
+def test_line_breaks_inside_paragraph(ws):
+    """Перенос строки и табуляция в абзаце docx — граница слова, а не склейка кусков."""
+    import io
+    from shirma import formats
+    from shirma.replace import FWD, Stats
+    reg = Registry(ws.db)
+    d = docx.Document()
+    d.add_paragraph('БИН 050140004877\nИванову И. И.\nivanov@romashka.kz\tКузнецова М.П.')
+    buf = io.BytesIO()
+    d.save(buf)
+    out = formats.convert(buf.getvalue(), 'письмо.docx', reg, FWD, Stats(), [])
+    fwd = '\n'.join(texts(out, 'письмо.docx'))
+    for s in ('Иванов', 'Кузнецов', 'ivanov', '050140004877'):
+        assert s not in fwd
+
+    iv = _fake_person(reg, 'Иванов').fake
+    ku = _fake_person(reg, 'Кузнецов').fake
+    iv_datv = morph.decline_surname(iv['sur'], 'm')[2]
+    d = docx.Document()
+    d.add_paragraph(f'БИН {reg.nums["bin"]["050140004877"]}\n{iv_datv} {iv["name"][0]}. {iv["patr"][0]}.\n'
+                    f'{reg.emails["ivanov@romashka.kz"]}\t{ku["sur"]} {ku["name"][0]}.{ku["patr"][0]}.')
+    d.save(os.path.join(ws.claude_out, 'письмо.docx'))
+    assert main(['vernut', '--root', ws.root]) == 0
+    t = docx.Document(os.path.join(ws.result, 'письмо.docx')).paragraphs[0].text
+    assert 'Иванову И. И.' in t
+    assert 'ivanov@romashka.kz' in t
+    assert 'Кузнецова М.П.' in t
+    assert '050140004877' in t
+
+
 def test_second_run_is_idempotent(ws):
     before = {f: os.path.getmtime(os.path.join(ws.copies, f)) for f in walk_files(ws.copies)}
     assert main(['obezlichit', '--root', ws.root]) == 0
