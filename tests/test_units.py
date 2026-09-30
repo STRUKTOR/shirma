@@ -142,6 +142,9 @@ def test_install_init_skill(tmp_path):
     text = (tmp_path / 'shirma-init' / 'SKILL.md').read_text(encoding='utf-8')
     assert text.startswith('---\nname: shirma-init\ndescription: ')
     assert '-m shirma init "<ПАПКА>" --dry-run' in text and '{py}' not in text
+    # после создания — перевести сессию в claude/ и проверить, что защита включилась
+    assert 'change_directory' in text and '../private/system/README.txt' in text
+    assert 'cd "<ПАПКА>/claude" && claude' in text
 
 
 def test_init_dry_run_and_warnings(tmp_path, monkeypatch):
