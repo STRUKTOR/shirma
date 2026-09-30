@@ -37,8 +37,8 @@ def test_people_replaced(reg, text):
             assert w not in out, (w, out)
 
 
-def test_script_collision_bug_fixed(reg):
-    # в obezl.py получалось «Ромашка-02-01»: фейк содержал настоящее название
+def test_no_replacement_inside_fake(reg):
+    # замена за один проход: настоящее название внутри уже выданного фейка не заменяется повторно
     out = roundtrip(reg, 'ТОО «Ақжол» и ТОО «Ромашка»')
     assert 'Ромашка' not in out and 'Ақжол' not in out
 
