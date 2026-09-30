@@ -1,4 +1,4 @@
-"""PreToolUse-хук Claude Code: не пускает Claude в папку private.
+"""PreToolUse-хук Claude Code: не пускает Claude в папку private и не даёт править свои защиты.
 
 Разрешены только три команды shirma (их вывод — только количества).
 Блокировка: код выхода 2, причина — в stderr (её видит Claude).
@@ -16,9 +16,14 @@ import unicodedata
 
 PATH_KEYS = ('file_path', 'path', 'notebook_path')
 SEARCH_TOOLS = ('Glob', 'Grep', 'LS')
+WRITE_TOOLS = ('Edit', 'Write', 'MultiEdit', 'NotebookEdit')
 COMMANDS = ('obfuscate', 'check', 'restore')
 DENIED = 'Доступ к папке private запрещён: там оригиналы с персональными данными.'
 DENIED_UP = 'Выход за пределы папки проекта запрещён: рядом лежит private с оригиналами.'
+DENIED_CFG = ('Правка настроек, скилла и CLAUDE.md запрещена: они защищают оригиналы. '
+              'Если правило мешает, скажи об этом пользователю.')
+# в bash-команде: .claude как часть пути или CLAUDE.md
+RE_CFG_IN_CMD = re.compile(r'(^|[\s\'"=/:])\.claude([/\s\'"]|$)|claude\.md', re.I)
 
 
 def nfc(s):
@@ -54,12 +59,17 @@ def check(data, private, root, py):
     if re.search(rf'\.\./{name}(/|\b)', blob, re.I):
         return DENIED
 
+    claude_n = norm_path(os.path.join(root, 'claude'))
     for k in PATH_KEYS:
         v = inp.get(k)
         if isinstance(v, str) and v:
             p = norm_path(os.path.join(cwd, os.path.expanduser(v)))
             if p == private_n or p.startswith(private_n + '/'):
                 return DENIED
+            pc, cn = p.casefold(), claude_n.casefold()
+            if tool in WRITE_TOOLS and (pc.startswith(cn + '/.claude/') or pc == cn + '/.claude'
+                                        or pc == cn + '/claude.md'):
+                return DENIED_CFG
             if tool in SEARCH_TOOLS and (private_n.startswith(p + '/') or p == root_n):
                 return DENIED_UP
     if tool in SEARCH_TOOLS and not inp.get('path'):
@@ -69,6 +79,8 @@ def check(data, private, root, py):
 
     if tool == 'Bash':
         cmd = inp.get('command') or ''
+        if RE_CFG_IN_CMD.search(nfc(cmd)):
+            return DENIED_CFG
         if re.search(r'(^|[\s\'"=/:])\.\.([/\\\s\'"]|$)', cmd):
             return DENIED_UP
         low = blob.casefold()

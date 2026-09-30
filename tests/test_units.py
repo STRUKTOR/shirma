@@ -111,3 +111,26 @@ def test_check_ignores_iin_without_leading_zero(reg):
     reg.nums_rev['iin']['070107676995'] = 'x'
     assert not scan_leftovers('70107676995', reg, use_ner=False)
     assert fake
+
+
+def test_hook_protects_own_config(tmp_path):
+    root = str(tmp_path)
+    priv = str(tmp_path / 'private')
+    cwd = str(tmp_path / 'claude')
+    py = '/x/python'
+
+    def chk(tool, inp):
+        return check({'tool_name': tool, 'tool_input': inp, 'cwd': cwd}, priv, root, py)
+
+    for path in ('.claude/settings.json', '.claude/skills/shirma/SKILL.md', 'CLAUDE.md', 'claude.md',
+                 '.Claude/settings.json', f'{cwd}/.claude/settings.local.json'):
+        assert chk('Edit', {'file_path': path, 'old_string': 'a', 'new_string': 'b'}), path
+        assert chk('Write', {'file_path': path, 'content': '{}'}), path
+    for cmd in ('echo {} > .claude/settings.json', 'rm -rf .claude', "sed -i '' 's/x//' CLAUDE.md",
+                'mv ./.claude/skills x'):
+        assert chk('Bash', {'command': cmd}), cmd
+    # читать можно; обычная работа не задета
+    assert chk('Read', {'file_path': 'CLAUDE.md'}) is None
+    assert chk('Read', {'file_path': '.claude/skills/shirma/SKILL.md'}) is None
+    assert chk('Write', {'file_path': 'output/claude-notes.md', 'content': 'x'}) is None
+    assert chk('Bash', {'command': 'grep -rn claude input/'}) is None

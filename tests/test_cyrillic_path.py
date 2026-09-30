@@ -108,3 +108,16 @@ def test_hook_process_with_cyrillic_args(ws):
     good = json.dumps({'tool_name': 'Read', 'tool_input': {'file_path': 'input/x.docx'}, 'cwd': ws.claude})
     r = subprocess.run(['bash', '-c', hook_cmd], input=good, capture_output=True, text=True, cwd=ws.claude)
     assert r.returncode == 0, r.stderr
+
+
+def test_skill_created(ws):
+    p = os.path.join(ws.claude, '.claude', 'skills', 'shirma', 'SKILL.md')
+    with open(p, encoding='utf-8') as f:
+        text = f.read()
+    assert text.startswith('---\nname: shirma\ndescription: ')
+    for c in allowed_commands(_posix(_python()), _posix(ws.root)):
+        assert c in text          # точные команды, разрешённые в настройках
+    assert '{cmd_' not in text
+    with open(os.path.join(ws.claude, '.claude', 'settings.json'), encoding='utf-8') as f:
+        deny = json.load(f)['permissions']['deny']
+    assert 'Edit(./.claude/**)' in deny and 'Write(./CLAUDE.md)' in deny
