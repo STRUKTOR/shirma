@@ -1,4 +1,4 @@
-"""Команды: init, obfuscate, check, restore.
+"""Команды: init, obfuscate, check, restore, install-skill.
 
 В консоль печатаются только количества — никаких значений. Подробности — в отчёте
 в private/system/reports.
@@ -280,10 +280,32 @@ def cmd_restore(ws, args):
 # --- init ---------------------------------------------------------------------------
 
 def cmd_init(ws, args):
-    from .setup import init_workspace
+    from .setup import init_workspace, location_warnings
+    warns = location_warnings(ws.root)
+    existing = ws.is_workspace()
+    if args.dry_run:
+        _out(f'Папка: {ws.root}')
+        _out('Уже рабочая папка Ширмы — init обновит ярлыки, настройки и скилл, данные не тронет.'
+             if existing else ('Папка существует, в ней появятся private/, claude/ и ярлыки.'
+                               if os.path.isdir(ws.root) else 'Папка будет создана.'))
+        for w in warns:
+            _out('ВНИМАНИЕ: ' + w)
+        if not warns:
+            _out('Место подходит.')
+        return 1 if warns else 0
     init_workspace(ws)
-    _out(f'Рабочая папка готова: {ws.root}')
+    _out(f'Рабочая папка {"обновлена" if existing else "готова"}: {ws.root}')
+    for w in warns:
+        _out('ВНИМАНИЕ: ' + w)
     _out('Кладите файлы в private/input и запускайте «1-Обезличить». Claude Code открывайте в папке claude.')
+    return 0
+
+
+def cmd_install_skill(args):
+    from .setup import install_init_skill
+    path = install_init_skill(args.path)
+    _out(f'Скилл shirma-init установлен: {path}')
+    _out('В любой сессии Claude Code можно сказать: «создай рабочую папку Ширмы».')
     return 0
 
 
@@ -293,12 +315,15 @@ def main(argv=None):
     except Exception:
         pass
     p = argparse.ArgumentParser(prog='shirma', description='Обезличивание документов для работы с Claude')
-    p.add_argument('command', choices=['init', 'obfuscate', 'check', 'restore'])
-    p.add_argument('path', nargs='?', help='рабочая папка (для init)')
+    p.add_argument('command', choices=['init', 'obfuscate', 'check', 'restore', 'install-skill'])
+    p.add_argument('path', nargs='?', help='рабочая папка (для init) или папка скиллов (для install-skill)')
     p.add_argument('--root', help='рабочая папка (где лежат private и claude)')
     p.add_argument('--open', action='store_true', help='открыть отчёт в браузере')
     p.add_argument('--no-ner', action='store_true', help='не использовать NER (быстрее, но хуже находит имена)')
+    p.add_argument('--dry-run', action='store_true', help='init: только проверить место, ничего не создавать')
     args = p.parse_args(argv)
+    if args.command == 'install-skill':
+        return cmd_install_skill(args)
     if args.command == 'init':
         ws = Workspace(args.path or args.root or os.getcwd())
     else:

@@ -133,6 +133,54 @@ description: Обезличивание документов и возврат �
   (склонять можно).
 """
 
+INIT_SKILL_MD = """---
+name: shirma-init
+description: Создание и обновление рабочей папки Ширмы — инструмента обезличивания документов перед работой с Claude. Используй, когда пользователь просит создать (настроить, завести) рабочую папку Ширмы или папку для обезличивания документов, подготовить место для работы с конфиденциальными файлами через Ширму, или обновить существующую рабочую папку после обновления Ширмы.
+---
+
+# Ширма: создать рабочую папку
+
+Рабочая папка — это `private/` (оригиналы, результаты, таблица замен — Claude туда не заглядывает),
+`claude/` (папка проекта Claude Code с обезличенными копиями) и ярлыки
+«1-Обезличить», «2-Проверить», «3-Вернуть» в корне.
+
+## Порядок
+
+1. **Где создать.** Если пользователь не назвал место — спроси. Предложи `~/Shirma/<название>`,
+   где название — направление или клиент (у каждой рабочей папки своя таблица замен;
+   для разных направлений лучше разные папки). Не предлагай «Документы», «Рабочий стол»,
+   iCloud Drive, Dropbox, OneDrive, Google Drive, Яндекс Диск и папки внутри git-репозиториев.
+
+2. **Проверить место** (ничего не создаёт):
+
+       "{py}" -m shirma init "<ПАПКА>" --dry-run
+
+   - Код 0 — место подходит.
+   - Код 1 и строки «ВНИМАНИЕ» — перескажи предупреждение своими словами (облако: оригиналы
+     с персональными данными уйдут на серверы хранилища; git: их можно случайно закоммитить)
+     и предложи другое место. Создавай здесь, только если пользователь явно подтвердит.
+   - «Уже рабочая папка Ширмы» — init только обновит ярлыки, настройки и скиллы; оригиналы,
+     результаты, таблица замен и словари не пострадают. Так обновляют папку после обновления Ширмы.
+
+3. **Создать:**
+
+       "{py}" -m shirma init "<ПАПКА>"
+
+4. **Объяснить следующий шаг** коротко:
+   - положить файлы в `<ПАПКА>/private/input`;
+   - обезличить: двойной щелчок по «1-Обезличить» или в чате (см. ниже);
+   - **работать с документами — в новой сессии Claude Code, открытой в `<ПАПКА>/claude`.**
+     Только там действуют защиты (запреты, хук) и скилл `shirma` («обезличь», «проверь»,
+     «верни данные»). Эту сессию для работы с документами не используй.
+   - при желании дописать известных клиентов и людей в `<ПАПКА>/private/system/dictionaries`.
+
+## Чего не делать
+
+- Не читай и не открывай ничего в `private/` — ни сейчас, ни потом: там будут оригиналы.
+- Не клади файлы пользователя в `private/input` сам и не запускай обезличивание из этой сессии —
+  это делается в сессии внутри `<ПАПКА>/claude`.
+"""
+
 LAUNCHERS = {'obfuscate': '1-Обезличить', 'check': '2-Проверить', 'restore': '3-Вернуть'}
 
 
@@ -152,6 +200,37 @@ def _deny_abs(p):
     if len(s) > 1 and s[1] == ':':          # Windows: C:/x → //c/x
         return '//' + s[0].lower() + s[2:]
     return '/' + s                           # POSIX: /Users/x → //Users/x
+
+
+CLOUD_MARKERS = ('Mobile Documents', 'CloudStorage', 'Dropbox', 'OneDrive', 'Google Drive', 'GoogleDrive',
+                 'Yandex.Disk', 'YandexDisk', 'iCloudDrive', 'iCloud Drive', 'pCloud', 'Box Sync', 'MEGA')
+
+
+def location_warnings(path):
+    """Чем опасно место для рабочей папки: облачная синхронизация, git-репозиторий."""
+    out = []
+    p = os.path.realpath(os.path.abspath(os.path.expanduser(path)))
+    home = os.path.expanduser('~')
+    if any(m.lower() in p.lower() for m in CLOUD_MARKERS):
+        out.append('Папка внутри облачного хранилища (iCloud, Dropbox, OneDrive, Google Drive, Яндекс Диск): '
+                   'оригиналы с персональными данными будут синхронизироваться в облако.')
+    else:
+        icloud = os.path.join(home, 'Library', 'Mobile Documents', 'com~apple~CloudDocs')
+        for sub in ('Documents', 'Desktop'):
+            local = os.path.join(home, sub)
+            if (p == local or p.startswith(local + os.sep)) and os.path.isdir(os.path.join(icloud, sub)):
+                out.append(f'На этом Mac папка «{sub}» синхронизируется с iCloud: оригиналы с персональными '
+                           f'данными попадут в облако.')
+    cur = p
+    while True:
+        if os.path.exists(os.path.join(cur, '.git')):
+            out.append(f'Папка внутри git-репозитория ({cur}): оригиналы можно случайно закоммитить.')
+            break
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            break
+        cur = parent
+    return out
 
 
 def init_workspace(ws):
@@ -216,3 +295,14 @@ def init_workspace(ws):
     os.makedirs(os.path.join(ws.claude, '.claude'), exist_ok=True)
     with open(os.path.join(ws.claude, '.claude', 'settings.json'), 'w', encoding='utf-8') as f:
         json.dump(settings, f, ensure_ascii=False, indent=2)
+
+
+def install_init_skill(skills_dir=None):
+    """Личный скилл shirma-init: создание рабочей папки из любой сессии Claude Code."""
+    skills_dir = skills_dir or os.path.join(os.path.expanduser('~'), '.claude', 'skills')
+    d = os.path.join(skills_dir, 'shirma-init')
+    os.makedirs(d, exist_ok=True)
+    path = os.path.join(d, 'SKILL.md')
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(INIT_SKILL_MD.format(py=_posix(_python())))
+    return path

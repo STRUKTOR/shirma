@@ -134,3 +134,29 @@ def test_hook_protects_own_config(tmp_path):
     assert chk('Read', {'file_path': '.claude/skills/shirma/SKILL.md'}) is None
     assert chk('Write', {'file_path': 'output/claude-notes.md', 'content': 'x'}) is None
     assert chk('Bash', {'command': 'grep -rn claude input/'}) is None
+
+
+def test_install_init_skill(tmp_path):
+    from shirma.cli import main
+    assert main(['install-skill', str(tmp_path)]) == 0
+    text = (tmp_path / 'shirma-init' / 'SKILL.md').read_text(encoding='utf-8')
+    assert text.startswith('---\nname: shirma-init\ndescription: ')
+    assert '-m shirma init "<ПАПКА>" --dry-run' in text and '{py}' not in text
+
+
+def test_init_dry_run_and_warnings(tmp_path, monkeypatch):
+    from shirma.cli import main
+    from shirma.setup import location_warnings
+    target = tmp_path / 'Работа'
+    assert main(['init', str(target), '--dry-run']) == 0
+    assert not target.exists()                 # dry-run ничего не создаёт
+    (tmp_path / 'repo' / '.git').mkdir(parents=True)
+    assert any('git' in w for w in location_warnings(str(tmp_path / 'repo' / 'ws')))
+    assert main(['init', str(tmp_path / 'repo' / 'ws'), '--dry-run']) == 1
+    assert any('облач' in w for w in location_warnings(str(tmp_path / 'Dropbox' / 'ws')))
+    # iCloud «Документы» на macOS
+    home = tmp_path / 'home'
+    (home / 'Library' / 'Mobile Documents' / 'com~apple~CloudDocs' / 'Documents').mkdir(parents=True)
+    monkeypatch.setenv('HOME', str(home))
+    assert any('iCloud' in w for w in location_warnings(str(home / 'Documents' / 'ws')))
+    assert not location_warnings(str(home / 'Shirma' / 'ws'))
