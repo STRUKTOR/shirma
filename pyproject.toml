@@ -1,0 +1,23 @@
+[project]
+name = "shirma"
+version = "0.1.0"
+description = "Обезличивание документов перед работой с Claude Code и обратная замена"
+requires-python = ">=3.10"
+dependencies = [
+    "lxml>=5",
+    "natasha>=1.6",
+    "pymorphy3>=2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "openpyxl>=3.1", "python-docx>=1.1"]
+
+[project.scripts]
+shirma = "shirma.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["shirma*"]

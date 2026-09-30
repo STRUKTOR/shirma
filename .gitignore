@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Окружение
+.venv/
+venv/
+.env
+
+# Инструменты
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Редакторы и ОС
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Рабочие данные Ширмы: оригиналы и таблица замен никогда не должны попасть в репозиторий
+Сейф/
+Claude/
+*.sqlite
+zameny.csv
