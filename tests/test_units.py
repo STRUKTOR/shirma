@@ -145,6 +145,7 @@ def test_install_init_skill(tmp_path):
     # после создания — перевести сессию в claude/ и проверить, что защита включилась
     assert 'change_directory' in text and '../private/system/README.txt' in text
     assert 'cd "<ПАПКА>/claude" && claude' in text
+    assert '<текущий каталог сессии>/shirma' in text      # место по умолчанию
 
 
 def test_init_dry_run_and_warnings(tmp_path, monkeypatch):
