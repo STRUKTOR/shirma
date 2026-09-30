@@ -308,6 +308,10 @@ def scan_leftovers(text, reg: Registry, use_ner=True):
         for m in rx.finditer(text):
             if re.fullmatch(r'\d+0{6}', m.group()):
                 continue   # круглая сумма, а не номер
+            if re.fullmatch(r'\d{11}', m.group()) and any(
+                    m.group().zfill(12) in reg.nums_rev[t] or m.group().zfill(12) in reg.nums[t]
+                    for t in ('iin', 'bin', 'num12')):
+                continue   # ИИН, записанный в Excel числом (ведущий ноль потерян)
             k = keyf(m.group())
             types = [typ] if typ else ['iin', 'bin', 'num12']
             if not any(k in reg.nums_rev[t] or k in reg.nums[t] for t in types):

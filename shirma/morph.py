@@ -207,8 +207,9 @@ def _morph():
 @lru_cache(maxsize=20000)
 def known_name_gender(nom):
     """'m'/'f', если имя известно словарю или пулам, иначе None."""
-    for g, pool in (('m', pools.NAMES_M_RU), ('f', pools.NAMES_F_RU),
-                    ('m', pools.NAMES_M_KZ), ('f', pools.NAMES_F_KZ)):
+    if nom in pools.SURNAMES:
+        return None
+    for g, pool in (('m', pools.NAMES_M), ('f', pools.NAMES_F)):
         if nom in pool:
             return g
     for p in _morph().parse(nom.lower()):
@@ -223,6 +224,11 @@ def known_name_gender(nom):
 @lru_cache(maxsize=20000)
 def is_name_like(word):
     """Похоже ли слово (в любом падеже) на личное имя."""
+    if word in pools.SURNAMES:
+        return False
+    if any(_norm_e(f) == _norm_e(word) for n in pools.NAMES_M for f in decline_name(n, 'm')) or \
+            any(_norm_e(f) == _norm_e(word) for n in pools.NAMES_F for f in decline_name(n, 'f')):
+        return True
     for p in _morph().parse(word.lower()):
         if 'Name' in p.tag and p.is_known and p.score >= 0.05:
             return True
@@ -262,10 +268,14 @@ def surname_score(nom, g):
         return 1.0
     if cls == 'indecl' and g == 'f' and nom[-1:].lower() not in _VOWELS and not nom.lower().endswith(('их', 'ых')):
         return 1.0   # женская фамилия на согласную (Ким, Сокол) — реже, чем мужская
+    if cls == 'indecl' and not nom.lower().endswith(('ко', 'их', 'ых', 'аго', 'яго')):
+        return 0.8   # фамилии на гласную (Шойгу, Ли) редки
     return {'ov': 3.0, 'adj': 3.0, 'indecl': 1.5, 'cons': 1.2, 'a': 0.4}[cls]
 
 
 def name_score(nom, g):
+    if nom in pools.SURNAMES:
+        return -2.0       # фейковая фамилия, а не имя
     kg = known_name_gender(nom)
     if kg == g:
         return 3.0
@@ -337,7 +347,7 @@ def is_kz_person(sur, name, patr_style):
         return True
     if patr_style in ('kz', 'kz_sep'):
         return True
-    if name and (name in KZ_NAME_HINTS or name in pools.NAMES_M_KZ or name in pools.NAMES_F_KZ):
+    if name and name in KZ_NAME_HINTS:
         return True
     if sur and sur.lower().endswith(KZ_SURNAME_HINTS):
         return True
@@ -359,29 +369,26 @@ def resolve(sur_tok=None, name_tok=None, patr_tok=None, initials=()):
                                    if name_tok.startswith(s)]) if name_tok else None
     p_c = _patr_cands(patr_tok) if patr_tok else None
     results = []
-    for g in ('m', 'f'):
-        for case in CASES:
-            best_s = max((surname_score(n, g), n) for n, gg, cc in s_c if gg == g and cc == case) \
-                if any(gg == g and cc == case for _, gg, cc in s_c) else None
-            if best_s is None:
+    for sur_nom, g, case in sorted(set(s_c)):
+        score = surname_score(sur_nom, g)
+        if known_name_gender(sur_nom):
+            score -= 2.0      # «Хоакин», «Иван» — имя, а не фамилия
+        name = patr = None
+        if n_c is not None:
+            opts = [(name_score(n, g), n) for n, gg, cc in n_c if gg == g and cc == case]
+            if not opts:
                 continue
-            score = best_s[0]
-            name = patr = None
-            if n_c is not None:
-                opts = [(name_score(n, g), n) for n, gg, cc in n_c if gg == g and cc == case]
-                if not opts:
-                    continue
-                sc, name = max(opts)
-                score += sc
-            if p_c is not None:
-                opts = [n for n, gg, cc in p_c if gg == g and cc == case]
-                if not opts:
-                    continue
-                patr = opts[0]
-                score += 5
-            score += _CASE_BONUS[case]
-            results.append((score, g, case, best_s[1], name, patr))
-    results.sort(key=lambda r: -r[0])
+            sc, name = max(opts)
+            score += sc
+        if p_c is not None:
+            opts = [n for n, gg, cc in p_c if gg == g and cc == case]
+            if not opts:
+                continue
+            patr = opts[0]
+            score += 5
+        score += _CASE_BONUS[case]
+        results.append((score, g, case, sur_nom, name, patr))
+    results.sort(key=lambda r: (-r[0], r[1], CASES.index(r[2]), r[3]))
     out, seen = [], set()
     for score, g, case, sur, name, patr in results:
         k = (g, sur, name, patr)

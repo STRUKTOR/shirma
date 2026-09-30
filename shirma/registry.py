@@ -198,19 +198,10 @@ class Registry:
         return p
 
     def _fake_person(self, orig):
-        g, kz = orig['gender'], orig.get('kz')
-        cls = morph.surname_class(orig['sur'], g)
-        if cls == 'adj':
-            pool = pools.SURNAMES_ADJ
-        elif cls == 'indecl':
-            pool = pools.SURNAMES_INDECL
-        elif cls == 'cons':
-            pool = pools.SURNAMES_CONS
-        else:
-            pool = pools.SURNAMES_OV_KZ if kz else pools.SURNAMES_OV_RU
-        names = (pools.NAMES_M_KZ if g == 'm' else pools.NAMES_F_KZ) if kz else \
-                (pools.NAMES_M_RU if g == 'm' else pools.NAMES_F_RU)
-        fathers = pools.FATHERS_KZ if kz else pools.FATHERS_RU
+        g = orig['gender']
+        pool = pools.SURNAMES
+        names = pools.NAMES_M if g == 'm' else pools.NAMES_F
+        fathers = pools.FATHERS
         orig_base = norm_key(morph.sur_base(orig['sur'], g))
         rng = fakes.rng_for(self.secret, 'person', orig_base, orig.get('name'), orig.get('init_n'), g)
         # фейк не должен даже частично совпадать с настоящими фамилиями
@@ -230,20 +221,12 @@ class Registry:
             if k not in self.fake_surnames and clean(cand):
                 sur_m = cand
                 break
-        if g == 'f' and sur_m.lower().endswith(('ов', 'ев', 'ёв', 'ин', 'ын')):
-            sur = sur_m + 'а'
-        elif g == 'f' and sur_m.endswith('ий'):
-            sur = sur_m[:-2] + 'ая'
-        else:
-            sur = sur_m
+        sur = sur_m   # испанские фамилии одинаковы для мужчин и женщин
         # несклоняемое имя (Айгерим) ↔ несклоняемое, иначе падеж при замене не сохранится
         on = orig.get('name')
         if on:
             indecl = len(set(morph.decline_name(on, g))) == 1
             same = [n for n in names if (len(set(morph.decline_name(n, g))) == 1) == indecl]
-            if not same:
-                alt = (pools.NAMES_M_RU + pools.NAMES_M_KZ) if g == 'm' else (pools.NAMES_F_RU + pools.NAMES_F_KZ)
-                same = [n for n in alt if (len(set(morph.decline_name(n, g))) == 1) == indecl]
             names = same or names
         names = [n for n in names if n != on and clean(n)] or names
         name = rng.choice(names)
@@ -414,7 +397,7 @@ class Registry:
                                      lambda m: m.group(1) + fi[:len(m.group(2))], res)
                         return res
         rng = fakes.rng_for(self.secret, 'email', full)
-        base = fakes.translit(rng.choice(pools.SURNAMES_OV_RU))
+        base = fakes.translit(rng.choice(pools.SURNAMES))
         digits = re.sub(r'\D', '', local)
         if digits:
             digits = ''.join(rng.choice('0123456789') for _ in digits)

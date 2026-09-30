@@ -97,3 +97,11 @@ def test_hook_blocks_safe(tmp_path):
                  safe, root, py)
 
 
+
+
+def test_check_ignores_iin_without_leading_zero(reg):
+    from shirma.replace import scan_leftovers
+    fake = reg.num('iin', '051212650159')
+    reg.nums_rev['iin']['070107676995'] = 'x'
+    assert not scan_leftovers('70107676995', reg, use_ner=False)
+    assert fake
