@@ -1,3 +1,4 @@
+import os
 import re
 
 import pytest
@@ -158,9 +159,49 @@ def test_init_dry_run_and_warnings(tmp_path, monkeypatch):
     assert any('git' in w for w in location_warnings(str(tmp_path / 'repo' / 'ws')))
     assert main(['init', str(tmp_path / 'repo' / 'ws'), '--dry-run']) == 1
     assert any('облач' in w for w in location_warnings(str(tmp_path / 'Dropbox' / 'ws')))
+    # папка программы — нельзя
+    from shirma.setup import PROGRAM_DIR
+    assert any('папки программы' in w for w in location_warnings(os.path.join(PROGRAM_DIR, 'ws')))
+    if os.name == 'nt':
+        return  # дальше — iCloud на macOS (HOME на Windows не используется)
     # iCloud «Документы» на macOS
     home = tmp_path / 'home'
     (home / 'Library' / 'Mobile Documents' / 'com~apple~CloudDocs' / 'Documents').mkdir(parents=True)
     monkeypatch.setenv('HOME', str(home))
     assert any('iCloud' in w for w in location_warnings(str(home / 'Documents' / 'ws')))
-    assert not location_warnings(str(home / 'Shirma' / 'ws'))
+    assert not location_warnings(str(home / 'Shirma-projects' / 'ws'))
+
+
+def test_hook_powershell(tmp_path):
+    """Windows: Claude запускает команды через PowerShell — их хук проверяет так же, как Bash."""
+    from shirma.hook import allowed_commands
+    root = tmp_path / 'ws'
+    private = root / 'private'
+    claude = root / 'claude'
+    claude.mkdir(parents=True)
+    py = 'C:/py/python.exe'
+    rootp = str(root).replace('\\', '/')
+    data = lambda tool, inp: {'tool_name': tool, 'tool_input': inp, 'cwd': str(claude)}
+    assert check(data('PowerShell', {'command': 'Get-Content ..\\private\\input\\a.xlsx'}), str(private), str(root), py)
+    assert check(data('PowerShell', {'command': f'Get-Content "{private}/input/a.xlsx"'}), str(private), str(root), py)
+    for c in allowed_commands(py, rootp):
+        assert check(data('PowerShell', {'command': '& ' + c}), str(private), str(root), py) is None
+        assert check(data('Bash', {'command': c}), str(private), str(root), py) is None
+    assert any(' open ' in c for c in allowed_commands(py, rootp))
+
+
+def test_hook_process_reads_utf8(tmp_path):
+    """Хук читает JSON из stdin в UTF-8 независимо от кодировки консоли (cp1251 на Windows)."""
+    import json, subprocess, sys
+    root = tmp_path / 'Учебный'
+    private = root / 'private'
+    claude = root / 'claude'
+    claude.mkdir(parents=True)
+    inp = {'tool_name': 'Bash', 'tool_input': {'command': f'cat "{private}/input/реестр.xlsx"'}, 'cwd': str(claude)}
+    env = dict(os.environ)
+    env.pop('PYTHONUTF8', None)
+    r = subprocess.run([sys.executable, '-m', 'shirma.hook', '--private', str(private), '--root', str(root),
+                        '--py', sys.executable], input=json.dumps(inp, ensure_ascii=False).encode('utf-8'),
+                       capture_output=True, env=env)
+    assert r.returncode == 2, r.stderr
+    assert 'private' in r.stderr.decode('utf-8')

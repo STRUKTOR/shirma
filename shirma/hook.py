@@ -17,7 +17,9 @@ import unicodedata
 PATH_KEYS = ('file_path', 'path', 'notebook_path')
 SEARCH_TOOLS = ('Glob', 'Grep', 'LS')
 WRITE_TOOLS = ('Edit', 'Write', 'MultiEdit', 'NotebookEdit')
-COMMANDS = ('obfuscate', 'check', 'restore')
+# команды оболочки: Bash (macOS, Linux, Git Bash) и PowerShell (Windows)
+SHELL_TOOLS = ('Bash', 'PowerShell')
+COMMANDS = ('obfuscate', 'check', 'restore', 'open')
 DENIED = 'Доступ к папке private запрещён: там оригиналы с персональными данными.'
 DENIED_UP = 'Выход за пределы папки проекта запрещён: рядом лежит private с оригиналами.'
 DENIED_CFG = ('Правка настроек, скилла и CLAUDE.md запрещена: они защищают оригиналы. '
@@ -38,6 +40,18 @@ def allowed_commands(py, root):
     return {f'"{py}" -m shirma {c} --root "{root}"' for c in COMMANDS}
 
 
+def _posix(p):
+    return (p or '').replace('\\', '/')
+
+
+def is_allowed_command(cmd, py, root):
+    """Одна из команд shirma ровно в разрешённом виде; в PowerShell — с оператором вызова «& »."""
+    cmd = _posix(' '.join((cmd or '').split()))
+    if cmd.startswith('& '):
+        cmd = cmd[2:]
+    return cmd in allowed_commands(_posix(py), _posix(root))
+
+
 def check(data, private, root, py):
     """None — можно, иначе текст причины."""
     tool = data.get('tool_name', '')
@@ -47,10 +61,8 @@ def check(data, private, root, py):
     root_n = norm_path(root)
     name = re.escape(nfc(os.path.basename(private)))
 
-    if tool == 'Bash':
-        cmd = ' '.join((inp.get('command') or '').split())
-        if cmd in allowed_commands(py, root):
-            return None
+    if tool in SHELL_TOOLS and is_allowed_command(inp.get('command'), py, root):
+        return None
 
     blob = nfc(json.dumps(inp, ensure_ascii=False)).replace('\\\\', '/').replace('\\', '/')
     blob = blob.replace('~/', os.path.expanduser('~').replace('\\', '/') + '/')
@@ -77,7 +89,7 @@ def check(data, private, root, py):
         if pat.startswith(('..', '/', '~')):
             return DENIED_UP
 
-    if tool == 'Bash':
+    if tool in SHELL_TOOLS:
         cmd = inp.get('command') or ''
         if RE_CFG_IN_CMD.search(nfc(cmd)):
             return DENIED_CFG
@@ -98,7 +110,12 @@ def main():
     ap.add_argument('--py', required=True)
     a = ap.parse_args()
     try:
-        data = json.load(sys.stdin)
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+    try:
+        # Claude Code передаёт JSON в UTF-8; кодировка консоли Windows (cp1251) тут ни при чём
+        data = json.loads(sys.stdin.buffer.read().decode('utf-8'))
     except Exception:
         return 0
     reason = check(data, a.private, a.root, a.py)

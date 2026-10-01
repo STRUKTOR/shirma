@@ -8,6 +8,7 @@ import hashlib
 import os
 import pathlib
 import shutil
+import subprocess
 import sys
 import webbrowser
 import zipfile
@@ -279,6 +280,23 @@ def cmd_restore(ws, args):
 
 # --- init ---------------------------------------------------------------------------
 
+def cmd_open(ws, args):
+    """Открыть private/output в файловом менеджере. Содержимое не печатается."""
+    os.makedirs(ws.private_out, exist_ok=True)
+    try:
+        if os.name == 'nt':
+            os.startfile(ws.private_out)
+        elif sys.platform == 'darwin':
+            subprocess.run(['open', ws.private_out], check=False)
+        else:
+            subprocess.run(['xdg-open', ws.private_out], check=False)
+    except Exception as e:
+        _out(f'Не удалось открыть папку ({type(e).__name__}). Откройте сами: private/output.')
+        return 2
+    _out('Открыл папку с готовыми файлами (private/output). Откройте нужный файл сами.')
+    return 0
+
+
 def cmd_init(ws, args):
     from .setup import init_workspace, location_warnings
     warns = location_warnings(ws.root)
@@ -315,7 +333,7 @@ def main(argv=None):
     except Exception:
         pass
     p = argparse.ArgumentParser(prog='shirma', description='Обезличивание документов для работы с Claude')
-    p.add_argument('command', choices=['init', 'obfuscate', 'check', 'restore', 'install-skill'])
+    p.add_argument('command', choices=['init', 'obfuscate', 'check', 'restore', 'open', 'install-skill'])
     p.add_argument('path', nargs='?', help='рабочая папка (для init) или папка скиллов (для install-skill)')
     p.add_argument('--root', help='рабочая папка (где лежат private и claude)')
     p.add_argument('--open', action='store_true', help='открыть отчёт в браузере')
@@ -332,7 +350,8 @@ def main(argv=None):
             _out('ОШИБКА: не найдена рабочая папка (рядом должны лежать папки private и claude). '
                  'Создайте её командой: shirma init <папка>')
             return 2
-    cmd = {'init': cmd_init, 'obfuscate': cmd_obfuscate, 'check': cmd_check, 'restore': cmd_restore}
+    cmd = {'init': cmd_init, 'obfuscate': cmd_obfuscate, 'check': cmd_check, 'restore': cmd_restore,
+           'open': cmd_open}
     return cmd[args.command](ws, args)
 
 
