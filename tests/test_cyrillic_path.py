@@ -56,7 +56,12 @@ def test_settings_and_launchers(ws):
     hook_cmd = settings['hooks']['PreToolUse'][0]['hooks'][0]['command']
     assert 'Документы Ивановой' in hook_cmd
     if os.name != 'nt':
-        for title in ('1-Обезличить', '2-Проверить', '3-Вернуть'):
+        names = sorted(f for f in os.listdir(ws.root) if f.endswith('.command'))
+        assert names == ['1-Обезличить.command', '2-Вернуть.command']
+        with open(os.path.join(ws.root, '1-Обезличить.command'), encoding='utf-8') as f:
+            body = f.read()
+        assert ' obfuscate ' in body and ' check ' in body    # обезличить и сразу проверить
+        for title in ('1-Обезличить', '2-Вернуть'):
             p = os.path.join(ws.root, f'{title}.command')
             assert os.access(p, os.X_OK)
             subprocess.run(['bash', '-n', p], check=True)

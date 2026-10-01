@@ -207,3 +207,15 @@ def test_hook_process_reads_utf8(tmp_path):
                        capture_output=True, env=env)
     assert r.returncode == 2, r.stderr
     assert 'private' in r.stderr.decode('utf-8')
+
+
+def test_reinit_removes_old_launchers(tmp_path):
+    from shirma.cli import main
+    assert main(['init', str(tmp_path)]) == 0
+    ext = '.bat' if os.name == 'nt' else '.command'
+    for old in ('2-Проверить', '3-Вернуть', '4-Открыть результат'):
+        (tmp_path / (old + ext)).write_text('old', encoding='utf-8')
+    (tmp_path / 'мой файл.txt').write_text('не трогать', encoding='utf-8')
+    assert main(['init', str(tmp_path)]) == 0
+    names = sorted(p.name for p in tmp_path.iterdir() if p.is_file())
+    assert names == sorted(['1-Обезличить' + ext, '2-Вернуть' + ext, 'мой файл.txt'])

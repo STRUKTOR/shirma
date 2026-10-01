@@ -5,7 +5,7 @@ import pathlib
 import stat
 import sys
 
-from .hook import allowed_commands
+from .hook import COMMANDS, allowed_commands
 from .workspace import DICT_COMPANIES, DICT_PEOPLE, DICT_STOPLIST
 
 DICT_HEADERS = {
@@ -61,11 +61,11 @@ CLAUDE_MD = """# Работа с обезличенными документам
 
 README = """Ширма — рабочая папка.
 
-1-Обезличить, 2-Проверить, 3-Вернуть  — ярлыки, запускаются двойным щелчком
+1-Обезличить, 2-Вернуть  — ярлыки, запускаются двойным щелчком («Обезличить» сразу проверяет копии)
 
 private/                  сюда Claude не заглядывает
   input/                  кладите сюда свои файлы (docx, xlsx, pptx, txt, md, csv)
-  output/                 готовые файлы с настоящими данными после «3-Вернуть»
+  output/                 готовые файлы с настоящими данными после «2-Вернуть»
   system/                 служебное:
     mapping.sqlite          таблица соответствий
     mapping.csv             её копия для просмотра в Excel
@@ -78,9 +78,9 @@ claude/                   папка проекта Claude Code
 
 Порядок работы:
 1. Положить файлы в private/input и запустить «1-Обезличить».
-2. Запустить «2-Проверить». Если что-то найдено — открыть отчёт, дополнить словари, повторить.
+2. Посмотреть итог проверки в том же окне. Если что-то найдено — открыть отчёт, дополнить словари, повторить.
 3. Открыть Claude Code в папке claude и работать с файлами из claude/input.
-4. Когда Claude положит результаты в claude/output — запустить «3-Вернуть».
+4. Когда Claude положит результаты в claude/output — запустить «2-Вернуть».
 5. Забрать готовые файлы из private/output.
 
 Можно просто попросить Claude: «обезличь новые файлы», «верни данные в результаты».
@@ -141,7 +141,7 @@ description: Обезличивание документов и возврат �
 ## Чего не делать
 
 - Не пытайся прочитать `private`, отчёты, таблицу соответствий или словари — даже чтобы помочь.
-- Не запускай ярлыки `1-Обезличить` / `2-Проверить` / `3-Вернуть`: они для двойного щелчка
+- Не запускай ярлыки `1-Обезличить` / `2-Вернуть`: они для двойного щелчка
   человеком (ждут нажатия клавиши и открывают браузер).
 - Не правь этот скилл, `CLAUDE.md` и `.claude/settings.json` — они защищают оригиналы.
   Если правило мешает, скажи пользователю.
@@ -158,7 +158,7 @@ description: Создание и обновление рабочей папки 
 
 Рабочая папка — это `private/` (оригиналы, результаты, таблица замен — Claude туда не заглядывает),
 `claude/` (папка проекта Claude Code с обезличенными копиями) и ярлыки
-«1-Обезличить», «2-Проверить», «3-Вернуть» в корне.
+«1-Обезличить», «2-Вернуть» в корне.
 
 ## Порядок
 
@@ -231,8 +231,10 @@ description: Создание и обновление рабочей папки 
 - Не работай с документами, пока сессия не переведена в `<ПАПКА>/claude` и защита не проверена.
 """
 
-LAUNCHERS = {'obfuscate': '1-Обезличить', 'check': '2-Проверить', 'restore': '3-Вернуть',
-             'open': '4-Открыть результат'}
+# Ярлыки в корне рабочей папки: «Обезличить» сразу проверяет копии.
+LAUNCHERS = {'obfuscate': '1-Обезличить', 'restore': '2-Вернуть'}
+# Ярлыки прежних версий — удаляются при повторном init.
+OLD_LAUNCHERS = ('2-Проверить', '3-Вернуть', '4-Открыть результат', 'Обезличить', 'Проверить', 'Вернуть')
 # папка самой программы (репозиторий с .venv): при обновлении заменяется целиком
 PROGRAM_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -304,23 +306,28 @@ def init_workspace(ws):
     py = _posix(_python())
     root = _posix(ws.root)
     private = _posix(ws.private)
-    cmds = {c: f'"{py}" -m shirma {c} --root "{root}"' for c in LAUNCHERS}
+    cmds = {c: f'"{py}" -m shirma {c} --root "{root}"' for c in COMMANDS}
     assert set(cmds.values()) == allowed_commands(py, root)
 
     # ярлыки — в корне рабочей папки, рядом с private и claude
-    if os.name == 'nt':
-        for c, title in LAUNCHERS.items():
+    for title in OLD_LAUNCHERS:
+        for ext in ('.command', '.bat'):
+            old = os.path.join(ws.root, title + ext)
+            if os.path.isfile(old):
+                os.remove(old)
+    for c, title in LAUNCHERS.items():
+        lines = [f'{cmds[c]} --open']
+        if c == 'obfuscate':
+            lines.append(cmds['check'])        # сразу проверить копии; отчёт обезличивания уже открыт
+        if os.name == 'nt':
             with open(os.path.join(ws.root, f'{title}.bat'), 'w', encoding='utf-8') as f:
-                tail = '' if c == 'open' else 'echo.\r\npause\r\n'
                 f.write('@echo off\r\nchcp 65001 >nul\r\nset PYTHONUTF8=1\r\n'
-                        f'{cmds[c]} --open\r\n' + tail)
-    else:
-        for c, title in LAUNCHERS.items():
+                        + ''.join(l + '\r\necho.\r\n' for l in lines) + 'pause\r\n')
+        else:
             p = os.path.join(ws.root, f'{title}.command')
             with open(p, 'w', encoding='utf-8') as f:
-                f.write('#!/bin/bash\n'
-                        f'{cmds[c]} --open\n'
-                        'echo\nread -n 1 -s -r -p "Нажмите любую клавишу, чтобы закрыть окно"\n')
+                f.write('#!/bin/bash\n' + ''.join(l + '\necho\n' for l in lines)
+                        + 'read -n 1 -s -r -p "Нажмите любую клавишу, чтобы закрыть окно"\n')
             os.chmod(p, os.stat(p).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
     # Claude: правила, запреты, хук
