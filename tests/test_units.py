@@ -147,6 +147,8 @@ def test_install_init_skill(tmp_path):
     assert 'change_directory' in text and '../private/system/README.txt' in text
     assert 'cd "<ПАПКА>/claude" && claude' in text
     assert '<текущий каталог сессии>/shirma' in text      # место по умолчанию
+    # предупреждения — опция: можно создать здесь, другое место сам не подставляет
+    assert '**создать здесь**' in text and 'не подставляй другие места' in text
 
 
 def test_init_dry_run_and_warnings(tmp_path, monkeypatch):
